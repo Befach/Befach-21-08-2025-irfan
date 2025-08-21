@@ -2,7 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
-import { FaHome, FaBox, FaSignOutAlt, FaUser, FaBars, FaTimes } from 'react-icons/fa';
+import { FaHome, FaBox, FaSignOutAlt, FaUser, FaBars, FaTimes, FaEnvelope } from 'react-icons/fa';
 import { useState } from 'react';
 
 export default function AdminNav() {
@@ -62,6 +62,21 @@ export default function AdminNav() {
                 <FaBox className="mr-1" /> Shipments
               </span>
             </Link>
+            
+            <Link 
+              href="/admin/pabbly-integration" 
+              className={`px-3 py-2 rounded-md text-sm font-medium ${
+                isActive('/admin/pabbly-integration') 
+                  ? 'bg-[#F39C12] text-white' 
+                  : 'text-white hover:bg-[#F39C12]/80'
+              }`}
+            >
+              <span className="flex items-center">
+                <FaEnvelope className="mr-1" /> Pabbly + WATI
+              </span>
+            </Link>
+            
+
             
             {user && (
               <div className="flex items-center ml-4">
@@ -138,6 +153,8 @@ export default function AdminNav() {
                 <FaBox className="mr-2" /> Shipments
               </span>
             </Link>
+            
+
             
             {user && (
               <div className="px-3 py-2 text-white">

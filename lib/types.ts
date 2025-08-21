@@ -1,6 +1,7 @@
 export interface Shipment {
   id: string;
   tracking_id: string;
+  client_email: string; // Added for email notifications
   origin_country: string;
   origin_city: string;
   destination_country: string;

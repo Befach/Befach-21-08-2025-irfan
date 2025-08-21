@@ -10,8 +10,6 @@ const nextConfig = {
     // Warning: This is only a temporary solution
     ignoreDuringBuilds: true,
   },
-  // Enable static exports for Firebase Hosting
-  output: 'export',
   // Disable image optimization for static exports
   images: {
     unoptimized: true,

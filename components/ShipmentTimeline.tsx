@@ -10,14 +10,16 @@ const SHIPMENT_STAGES = [
   'Pending Customer Clearance',
   'Customs Clearance',
   'Dispatch to Befach Warehouse',
-  'Dispatch to Customer Warehouse'
+  'Dispatch to Customer Warehouse',
+  'Estimated Delivery'
 ];
 
 interface ShipmentTimelineProps {
   currentStage: string;
+  estimatedDelivery?: string;
 }
 
-const ShipmentTimeline: React.FC<ShipmentTimelineProps> = ({ currentStage }) => {
+const ShipmentTimeline: React.FC<ShipmentTimelineProps> = ({ currentStage, estimatedDelivery }) => {
   // Find the index of the current stage
   const currentStageIndex = SHIPMENT_STAGES.findIndex(stage => stage === currentStage);
   
@@ -64,6 +66,16 @@ const ShipmentTimeline: React.FC<ShipmentTimelineProps> = ({ currentStage }) => 
                   
                   {isCurrent && (
                     <p className="mt-1 text-sm text-green-600">Current status</p>
+                  )}
+                  
+                  {stage === 'Estimated Delivery' && estimatedDelivery && (
+                    <p className="mt-1 text-sm text-blue-600">
+                      Expected: {new Date(estimatedDelivery).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </p>
                   )}
                 </div>
               </div>

@@ -151,6 +151,29 @@ const TrackPage: NextPage = () => {
                   <h3 className="text-lg font-medium text-gray-700 mb-2">Transport Mode</h3>
                   <p className="text-gray-600">{shipment.transport_mode}</p>
                 </div>
+                
+                <div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">Estimated Delivery</h3>
+                  <p className="text-gray-600">
+                    {shipment.estimated_delivery ? (
+                      <>
+                        {new Date(shipment.estimated_delivery).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                        <span className="block text-sm text-gray-500 mt-1">
+                          {shipment.transport_mode?.toLowerCase().includes('air') ? '15 days from pickup (Air)' : 
+                           shipment.transport_mode?.toLowerCase().includes('sea') ? '45 days from pickup (Sea)' : 
+                           shipment.transport_mode ? '30 days from pickup (Default)' : 'Estimated delivery time'}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-gray-400">Not specified</span>
+                    )}
+                  </p>
+                </div>
               </div>
               
               <div className="mb-8">
@@ -191,7 +214,10 @@ const TrackPage: NextPage = () => {
                 </div>
               </div>
               
-              <ShipmentTimeline currentStage={shipment.status} />
+              <ShipmentTimeline 
+                currentStage={shipment.status} 
+                estimatedDelivery={shipment.estimated_delivery}
+              />
             </div>
           )}
         </div>

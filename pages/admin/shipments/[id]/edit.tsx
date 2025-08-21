@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import ClientOnlyAdmin from '../../../../components/ClientOnlyAdmin';
 import { supabase } from '../../../../lib/supabase';
 import { useAuth } from '../../../../contexts/AuthContext';
 import Link from 'next/link';
+import { sendZohoFlowNotification, isValidEmail } from '../../../../lib/utils';
+// Remove direct import of email service - will use API route instead
 
 // Define an interface for the stage
 interface ShipmentStage {
@@ -31,6 +33,8 @@ const SHIPMENT_STAGES = [
 
   const [formData, setFormData] = useState({
     tracking_id: '',
+    client_email: '',
+    client_phone: '',
     origin_country: '',
     origin_city: '',
     destination_country: '',
@@ -64,6 +68,7 @@ const SHIPMENT_STAGES = [
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<{[key: string]: string}>({});
   const [existingFiles, setExistingFiles] = useState<any[]>([]);
+  const [previousStatus, setPreviousStatus] = useState('');
 
   useEffect(() => {
     if (id) {
@@ -84,6 +89,8 @@ const SHIPMENT_STAGES = [
 
         setFormData({
           tracking_id: data.tracking_id || '',
+          client_email: data.client_email || '',
+          client_phone: data.client_phone || '',
           origin_city: data.origin_city || '',
         origin_country: data.origin_country || '',
           destination_city: data.destination_city || '',
@@ -110,6 +117,7 @@ const SHIPMENT_STAGES = [
         buyer_name: data.buyer_name || '',
         buyer_address: data.buyer_address || '',
       });
+        setPreviousStatus(data.status || 'Product Insurance');
     } catch (error) {
       console.error('Error fetching shipment:', error);
       setError('Failed to load shipment data');
@@ -175,11 +183,20 @@ const SHIPMENT_STAGES = [
   const handleChange = (e) => {
     const { name, value } = e.target;
     
+    if (name === 'client_phone') {
+      console.log('📱 Phone number changed:', value);
+      console.log('📱 Previous phone:', formData.client_phone);
+    }
+    
     // Update the form data
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
+    
+    if (name === 'client_phone') {
+      console.log('📱 Updated form data phone:', value);
+    }
     
     // If transport mode changes, update the estimated delivery date
     if (name === 'transport_mode') {
@@ -242,6 +259,8 @@ const SHIPMENT_STAGES = [
       // Prepare update data with proper type handling
       const updateData = {
         tracking_id: formData.tracking_id,
+        client_email: formData.client_email,
+        client_phone: formData.client_phone || null,
         origin_country: formData.origin_country,
         origin_city: formData.origin_city,
         destination_country: formData.destination_country,
@@ -251,9 +270,9 @@ const SHIPMENT_STAGES = [
         status: formData.status,
         transport_mode: formData.transport_mode,
         estimated_delivery: formData.estimated_delivery || null,
-        package_count: formData.package_count ? parseInt(formData.package_count) : 1,
+        package_count: formData.package_count ? parseInt(formData.package_count.toString()) : 1,
         package_type: formData.package_type || null,
-        weight: formData.weight ? parseFloat(formData.weight) : null,
+        weight: formData.weight ? parseFloat(formData.weight.toString()) : null,
         dimensions: formData.dimensions || null,
         contents: formData.contents || null,
         pickup_dispatched_through: formData.pickup_dispatched_through || null,
@@ -269,12 +288,181 @@ const SHIPMENT_STAGES = [
         buyer_address: formData.buyer_address || null,
       };
 
+      console.log("Starting shipment update...");
+      console.log("📱 Form data at submission:");
+      console.log("📱 Client phone:", formData.client_phone);
+      console.log("📱 Client email:", formData.client_email);
+      console.log("📱 Buyer name:", formData.buyer_name);
+      console.log("📱 Previous status (from state):", previousStatus);
+      console.log("📱 New status:", formData.status);
+      
+      // Get the current status from database for comparison
+      const { data: currentShipment } = await supabase
+        .from('shipments')
+        .select('status, client_email')
+        .eq('id', id)
+        .single();
+
+      const currentStatus = currentShipment?.status;
+      const clientEmail = currentShipment?.client_email || formData.client_email;
+
       const { error } = await supabase
         .from('shipments')
         .update(updateData)
         .eq('id', id);
       
       if (error) throw error;
+
+      // Send email notification if status changed and client email exists
+      if (currentStatus !== formData.status && clientEmail && isValidEmail(clientEmail)) {
+        try {
+          // Send email notification via API route
+          const response = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              emailType: 'status-update',
+              email: clientEmail,
+              shipmentData: updateData,
+              previousStatus,
+              newStatus: formData.status
+            }),
+          });
+          
+          const emailResult = await response.json();
+          if (emailResult.success) {
+            console.log('Status update email sent successfully');
+          } else {
+            console.error('Failed to send status update email:', emailResult.error);
+          }
+          
+          // Also send Zoho notification (keeping existing functionality)
+          await sendZohoFlowNotification({
+            event_type: 'stage_changed',
+            tracking_id: formData.tracking_id,
+            client_email: clientEmail,
+            shipment_name: formData.shipment_name,
+            current_stage: formData.status,
+            previous_stage: previousStatus,
+            origin_country: formData.origin_country,
+            destination_country: formData.destination_country,
+            estimated_delivery: formData.estimated_delivery,
+            notes: formData.shipment_notes
+          });
+          console.log('Zoho notification sent successfully');
+        } catch (error) {
+          console.error('Failed to send notifications:', error);
+          // Don't fail the update if email fails
+        }
+      }
+
+      // Send WhatsApp notification if status changed OR phone number updated and client phone exists
+      if ((currentStatus !== formData.status || formData.client_phone) && formData.client_phone && formData.client_phone.trim()) {
+        try {
+          // Format phone number with +91 prefix if not present
+          let formattedPhone = formData.client_phone.trim();
+          if (!formattedPhone.startsWith('+')) {
+            if (formattedPhone.startsWith('91') && formattedPhone.length === 12) {
+              formattedPhone = '+' + formattedPhone;
+            } else if (formattedPhone.length === 10) {
+              formattedPhone = '+91' + formattedPhone;
+            }
+          }
+          
+          console.log('📱 Sending status update WhatsApp using logistic template...');
+          console.log('📱 Previous Status:', previousStatus);
+          console.log('📱 New Status:', formData.status);
+          console.log('📱 Original Phone:', formData.client_phone);
+          console.log('📱 Formatted Phone:', formattedPhone);
+          console.log('📱 Client Name:', formData.buyer_name || 'Valued Customer');
+          
+          // Debug: Log the form data being sent
+          console.log('📱 WhatsApp Data Debug:');
+          console.log('📱 Origin City:', formData.origin_city);
+          console.log('📱 Origin Country:', formData.origin_country);
+          console.log('📱 Destination City:', formData.destination_city);
+          console.log('📱 Destination Country:', formData.destination_country);
+          console.log('📱 Buyer Name:', formData.buyer_name);
+          console.log('📱 Shipment Name:', formData.shipment_name);
+          
+          const response = await fetch('/api/send-whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              whatsappType: 'status-only',
+              phone: formattedPhone,
+              trackingId: formData.tracking_id,
+              status: formData.status,
+              additionalData: {
+                customerName: formData.buyer_name || 'Valued Customer',
+                shipmentName: formData.shipment_name || 'Shipment',
+                origin: `${formData.origin_city || 'N/A'}, ${formData.origin_country || 'N/A'}`,
+                destination: `${formData.destination_city || 'N/A'}, ${formData.destination_country || 'N/A'}`
+              }
+            }),
+          });
+          
+          console.log('📱 WhatsApp API Response Status:', response.status);
+          const whatsappResult = await response.json();
+          console.log('📱 WhatsApp API Response:', whatsappResult);
+          if (whatsappResult.success) {
+            console.log('✅ Status update WhatsApp sent successfully using logistic template');
+          } else {
+            console.error('❌ Failed to send status update WhatsApp:', whatsappResult.error);
+          }
+        } catch (error) {
+          console.error('Failed to send WhatsApp notification:', error);
+          // Don't fail the update if WhatsApp fails
+        }
+      }
+
+      // Send email notification to client if status changed and email exists
+      if (previousStatus !== formData.status && formData.client_email && isValidEmail(formData.client_email)) {
+        try {
+          console.log('📧 Sending status update email...');
+          console.log('📧 Previous Status:', previousStatus);
+          console.log('📧 New Status:', formData.status);
+          console.log('📧 Client Email:', formData.client_email);
+          
+          const response = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              emailType: 'status-update',
+              email: formData.client_email,
+              shipmentData: {
+                tracking_id: formData.tracking_id,
+                status: formData.status,
+                origin_city: formData.origin_city,
+                origin_country: formData.origin_country,
+                destination_city: formData.destination_city,
+                destination_country: formData.destination_country,
+                current_location_city: formData.current_city,
+                current_location_country: formData.current_country,
+                transport_mode: formData.transport_mode,
+                estimated_delivery: formData.estimated_delivery,
+                shipment_notes: formData.shipment_notes
+              },
+              previousStatus,
+              newStatus: formData.status
+            }),
+          });
+          
+          const emailResult = await response.json();
+          if (emailResult.success) {
+            console.log('✅ Status update email sent successfully');
+          } else {
+            console.error('❌ Failed to send status update email:', emailResult.error);
+          }
+        } catch (error) {
+          console.error('❌ Failed to send status update email:', error);
+          // Don't fail the shipment update if email fails
+        }
+      } else {
+        console.log('📧 No email notification - Status unchanged or email missing');
+        console.log('📧 Status changed:', previousStatus !== formData.status);
+        console.log('📧 Client email:', formData.client_email);
+      }
 
       // Handle file upload if files are selected
       if (selectedFiles.length > 0) {
@@ -372,19 +560,54 @@ const SHIPMENT_STAGES = [
         )}
         
         <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-            <label htmlFor="tracking_id" className="block text-sm font-medium text-gray-700">
-              Tracking Number *
-                  </label>
-                  <input
-                    type="text"
-                    id="tracking_id"
-                    name="tracking_id"
-              required
-                    value={formData.tracking_id}
-              disabled
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-gray-100 cursor-not-allowed"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="tracking_id" className="block text-sm font-medium text-gray-700">
+                Tracking Number *
+              </label>
+              <input
+                type="text"
+                id="tracking_id"
+                name="tracking_id"
+                required
+                value={formData.tracking_id}
+                disabled
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-gray-100 cursor-not-allowed"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="client_email" className="block text-sm font-medium text-gray-700">
+                Client Email *
+              </label>
+              <input
+                type="email"
+                id="client_email"
+                name="client_email"
+                required
+                value={formData.client_email}
+                onChange={handleChange}
+                placeholder="Enter client email for notifications"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+              />
+              <p className="text-xs text-gray-500 mt-1">Client will receive email notifications for updates</p>
+            </div>
+            
+            <div>
+              <label htmlFor="client_phone" className="block text-sm font-medium text-gray-700">
+                Client Phone Number
+              </label>
+              <input
+                type="tel"
+                id="client_phone"
+                name="client_phone"
+                value={formData.client_phone}
+                onChange={handleChange}
+                placeholder="9182992530"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+              />
+              <p className="text-xs text-gray-500 mt-1">Enter number without +91 (e.g., 9182992530). System will add +91 automatically.</p>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

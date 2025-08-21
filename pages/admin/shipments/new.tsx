@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+
 import { useRouter } from 'next/router';
 import ClientOnlyAdmin from '../../../components/ClientOnlyAdmin';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import Link from 'next/link';
 import { PostgrestError } from '@supabase/supabase-js';
+import { generateTrackingId, sendZohoFlowNotification, isValidEmail } from '../../../lib/utils';
+// Remove direct import of email service - will use API route instead
 
 // Define an interface for the stage
 interface ShipmentStage {
@@ -32,6 +35,7 @@ export default function NewShipment() {
 
   const [formData, setFormData] = useState({
     tracking_id: '',
+    client_email: '',
     origin_country: '',
     origin_city: '',
     destination_country: '',
@@ -63,13 +67,21 @@ export default function NewShipment() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showSuccessPage, setShowSuccessPage] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]); 
   const [filePreviews, setFilePreviews] = useState<{[key: string]: string}>({});
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, file_name: string, file_path: string, public_url: string, file_size: number, file_type: string}>>([]);
 
-  // Test database connection on component mount
+  // Generate tracking ID and test database connection on component mount
   useEffect(() => {
-    const testConnection = async () => {
+    const initializeForm = async () => {
+      // Generate unique tracking ID
+      const newTrackingId = generateTrackingId();
+      setFormData(prev => ({
+        ...prev,
+        tracking_id: newTrackingId
+      }));
+
+      // Test database connection
       try {
         console.log("Testing database connection...");
         const { data, error } = await supabase
@@ -87,7 +99,7 @@ export default function NewShipment() {
       }
     };
     
-    testConnection();
+    initializeForm();
   }, []);
 
   // Function to create preview URLs for files
@@ -109,6 +121,8 @@ export default function NewShipment() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     
+
+    
     // Update the form data
     setFormData(prev => ({
       ...prev,
@@ -119,6 +133,8 @@ export default function NewShipment() {
     if (name === 'transport_mode') {
       recalculateETA(value);
     }
+    
+
   };
 
   const recalculateETA = (transportMode) => {
@@ -187,10 +203,15 @@ export default function NewShipment() {
       }
 
       console.log("Starting shipment creation...");
+      console.log("📱 Form data at submission:");
+      console.log("📱 Client email:", formData.client_email);
+      console.log("📱 Buyer name:", formData.buyer_name);
       
       // Prepare shipment data with proper type handling
       const shipmentToInsert = {
         tracking_id: formData.tracking_id,
+        client_email: formData.client_email,
+
         origin_country: formData.origin_country,
         origin_city: formData.origin_city,
         destination_country: formData.destination_country,
@@ -211,9 +232,9 @@ export default function NewShipment() {
         shipper_address: formData.shipper_address || null,
         buyer_name: formData.buyer_name || null,
         buyer_address: formData.buyer_address || null,
-        package_count: formData.package_count ? parseInt(formData.package_count) : 1,
+        package_count: formData.package_count ? parseInt(formData.package_count.toString()) : 1,
         package_type: formData.package_type || null,
-        weight: formData.weight ? parseFloat(formData.weight) : null,
+        weight: formData.weight ? parseFloat(formData.weight.toString()) : null,
         dimensions: formData.dimensions || null,
         contents: formData.contents || null
       };
@@ -239,9 +260,42 @@ export default function NewShipment() {
 
       console.log("Shipment created successfully:", shipmentData);
 
+      // Send email notification to client
+      if (formData.client_email && isValidEmail(formData.client_email)) {
+        try {
+          console.log('📧 Starting email notification...');
+          const response = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              emailType: 'shipment-creation',
+              email: formData.client_email,
+              shipmentData: shipmentToInsert
+            }),
+          });
+          
+          const emailResult = await response.json();
+          if (emailResult.success) {
+            console.log('✅ Email notification sent successfully');
+          } else {
+            console.error('❌ Failed to send email notification:', emailResult.error);
+          }
+        } catch (error) {
+          console.error('❌ Failed to send email notification:', error);
+          // Don't fail the shipment creation if email fails
+        }
+      } else {
+        console.log('📧 No email notification - email missing or invalid');
+      }
+
+
+
+
+
+
       // Handle file upload if files are selected
       if (selectedFiles.length > 0 && shipmentData && shipmentData[0]?.id) {
-        const uploadedFilesList = [];
+        const uploadedFilesList: Array<{id: string, file_name: string, file_path: string, public_url: string, file_size: number, file_type: string}> = [];
         
         for (const file of selectedFiles) {
           try {
@@ -358,19 +412,42 @@ export default function NewShipment() {
         )}
         
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="tracking_id" className="block text-sm font-medium text-gray-700">
-              Tracking Number *
-            </label>
-            <input
-              type="text"
-              id="tracking_id"
-              name="tracking_id"
-              required
-              value={formData.tracking_id}
-              onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="tracking_id" className="block text-sm font-medium text-gray-700">
+                Tracking Number *
+              </label>
+              <input
+                type="text"
+                id="tracking_id"
+                name="tracking_id"
+                required
+                value={formData.tracking_id}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-gray-50"
+                readOnly
+              />
+              <p className="text-xs text-gray-500 mt-1">Auto-generated unique tracking ID</p>
+            </div>
+            
+            <div>
+              <label htmlFor="client_email" className="block text-sm font-medium text-gray-700">
+                Client Email *
+              </label>
+              <input
+                type="email"
+                id="client_email"
+                name="client_email"
+                required
+                value={formData.client_email}
+                onChange={handleChange}
+                placeholder="Enter client email for notifications"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+              />
+              <p className="text-xs text-gray-500 mt-1">Client will receive email notifications</p>
+            </div>
+            
+
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -404,7 +481,7 @@ export default function NewShipment() {
               />
             </div>
           </div>
-          
+    
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label htmlFor="destination_city" className="block text-sm font-medium text-gray-700">

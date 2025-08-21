@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { NextPage } from 'next';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 import MainNav from '../components/MainNav';
 import { FaShip, FaPlane, FaTruck, FaTrain, FaFileAlt, FaDownload, FaBox, FaCube, FaImage, FaFile, FaFilePdf, FaFileWord, FaFileExcel, FaSearch, FaArrowLeft, FaChevronUp, FaChevronDown, FaEye, FaClock } from 'react-icons/fa';
@@ -42,6 +43,7 @@ const styles = `
 `;
 
 const TrackNewPage: NextPage = () => {
+  const router = useRouter();
   const [trackingId, setTrackingId] = useState('');
   const [shipment, setShipment] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +53,60 @@ const TrackNewPage: NextPage = () => {
   const [showFullTimeline, setShowFullTimeline] = useState(false);
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const timelineRef = useRef(null);
+
+  // Handle URL parameters for direct tracking links
+  useEffect(() => {
+    if (router.isReady && router.query.tracking_id) {
+      const urlTrackingId = router.query.tracking_id as string;
+      setTrackingId(urlTrackingId);
+      // Automatically track the shipment
+      handleDirectTrack(urlTrackingId);
+    }
+  }, [router.isReady, router.query.tracking_id]);
+
+  const handleDirectTrack = async (trackingIdToTrack: string) => {
+    if (!trackingIdToTrack.trim()) {
+      setError('Please enter a tracking number');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    setShipment(null);
+    
+    try {
+      console.log('Searching for tracking ID:', trackingIdToTrack);
+      
+      // Use maybeSingle() instead of single() to handle no results gracefully
+      const { data, error: shipmentError } = await supabase
+        .from('shipments')
+        .select('*')
+        .eq('tracking_id', trackingIdToTrack)
+        .maybeSingle();
+      
+      console.log('Query result:', { data, error: shipmentError });
+      
+      if (shipmentError) {
+        console.error('Error fetching shipment:', shipmentError);
+        setError('Failed to track shipment. Please try again.');
+        return;
+      }
+      
+      if (!data) {
+        setError('No shipment found with this tracking number');
+        return;
+      }
+      
+      console.log('Shipment found:', data);
+      setShipment(data);
+      
+    } catch (err) {
+      console.error('Tracking error:', err);
+      setError('Failed to track shipment. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleTrack = async (e) => {
     e.preventDefault();
@@ -314,7 +370,8 @@ const TrackNewPage: NextPage = () => {
     'In Transit to India',
     'Customs Clearance',
     'Dispatch to Befach Warehouse',
-    'Dispatch to Customer Warehouse'
+    'Dispatch to Customer Warehouse',
+    'Estimated Delivery'
   ];
 
   return (
@@ -499,6 +556,30 @@ const TrackNewPage: NextPage = () => {
                       <p className="font-medium">{shipment.contents}</p>
                     </div>
 
+                    {/* Estimated Delivery Section */}
+                    <div className="mb-6">
+                      <h4 className="text-sm text-gray-600">Estimated Delivery</h4>
+                      {shipment.estimated_delivery ? (
+                        <div>
+                          <p className="font-medium text-green-600">
+                            {new Date(shipment.estimated_delivery).toLocaleDateString('en-US', {
+                              weekday: 'long',
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {shipment.transport_mode?.toLowerCase().includes('air') ? '15 days from pickup (Air)' : 
+                             shipment.transport_mode?.toLowerCase().includes('sea') ? '45 days from pickup (Sea)' : 
+                             shipment.transport_mode ? '30 days from pickup (Default)' : 'Estimated delivery time'}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="font-medium text-gray-400">Not specified</p>
+                      )}
+                    </div>
+
                     {/* Contact Information */}
                     <div className="border-t pt-4 mt-4">
                       <h4 className="text-sm font-medium text-gray-700 mb-3">Contact Information</h4>
@@ -643,6 +724,15 @@ const TrackNewPage: NextPage = () => {
                                 {stage === 'Dispatch to Customer Warehouse' && shipment.customer_dispatched_through && (
                                   <p className="text-sm text-blue-600 mt-1">
                                     Dispatched through: {shipment.customer_dispatched_through}
+                                  </p>
+                                )}
+                                {stage === 'Estimated Delivery' && shipment.estimated_delivery && (
+                                  <p className="text-sm text-green-600 mt-1">
+                                    Expected: {new Date(shipment.estimated_delivery).toLocaleDateString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric'
+                                    })}
                                   </p>
                                 )}
                               </div>
