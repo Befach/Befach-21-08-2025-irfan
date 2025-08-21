@@ -40,6 +40,28 @@ const styles = `
       transform: translateX(-100%);
     }
   }
+
+  /* Mobile optimization for estimated delivery */
+  @media (max-width: 768px) {
+    .estimated-delivery-mobile {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #f0fdf4;
+      border: 2px solid #22c55e;
+      border-radius: 0.5rem;
+    }
+    
+    .estimated-delivery-mobile h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    
+    .estimated-delivery-mobile p {
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+  }
 `;
 
 const TrackNewPage: NextPage = () => {
@@ -443,9 +465,31 @@ const TrackNewPage: NextPage = () => {
               </button>
             </div>
             
+            {/* Mobile Estimated Delivery Banner - Only visible on mobile */}
+            <div className="lg:hidden mb-6">
+              {shipment.estimated_delivery && (
+                <div className="bg-green-100 border-2 border-green-400 rounded-lg p-4">
+                  <h3 className="text-lg font-bold text-green-800 mb-2">📅 Estimated Delivery</h3>
+                  <p className="text-xl font-semibold text-green-700 mb-2">
+                    {new Date(shipment.estimated_delivery).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </p>
+                  <p className="text-green-600">
+                    {shipment.transport_mode?.toLowerCase().includes('air') ? '15 days from pickup (Air)' : 
+                     shipment.transport_mode?.toLowerCase().includes('sea') ? '45 days from pickup (Sea)' : 
+                     shipment.transport_mode ? '30 days from pickup (Default)' : 'Estimated delivery time'}
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column - Shipment Summary */}
-              <div className="space-y-6">
+              {/* Left Column - Shipment Summary and Details */}
+              <div className="space-y-6 lg:col-span-1">
                 {/* Shipment Summary Card */}
                 <div className="bg-white shadow rounded-lg overflow-hidden">
                   <div className="p-6">
@@ -556,12 +600,12 @@ const TrackNewPage: NextPage = () => {
                       <p className="font-medium">{shipment.contents}</p>
                     </div>
 
-                    {/* Estimated Delivery Section */}
-                    <div className="mb-6">
-                      <h4 className="text-sm text-gray-600">Estimated Delivery</h4>
+                    {/* Estimated Delivery Section - Mobile Optimized */}
+                    <div className="mb-6 p-4 bg-green-50 rounded-lg border-l-4 border-green-400 estimated-delivery-mobile">
+                      <h4 className="text-sm font-medium text-green-800 mb-2">Estimated Delivery</h4>
                       {shipment.estimated_delivery ? (
                         <div>
-                          <p className="font-medium text-green-600">
+                          <p className="font-medium text-green-700 text-base">
                             {new Date(shipment.estimated_delivery).toLocaleDateString('en-US', {
                               weekday: 'long',
                               year: 'numeric',
@@ -569,14 +613,14 @@ const TrackNewPage: NextPage = () => {
                               day: 'numeric'
                             })}
                           </p>
-                          <p className="text-sm text-gray-500 mt-1">
+                          <p className="text-sm text-green-600 mt-2">
                             {shipment.transport_mode?.toLowerCase().includes('air') ? '15 days from pickup (Air)' : 
                              shipment.transport_mode?.toLowerCase().includes('sea') ? '45 days from pickup (Sea)' : 
                              shipment.transport_mode ? '30 days from pickup (Default)' : 'Estimated delivery time'}
                           </p>
                         </div>
                       ) : (
-                        <p className="font-medium text-gray-400">Not specified</p>
+                        <p className="font-medium text-green-600">Not specified</p>
                       )}
                     </div>
 
